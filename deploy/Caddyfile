@@ -1,0 +1,19 @@
+# Example only. Mount dist/ at /srv/openlia-locho and replace the hostname.
+# Public deployment has NOT been performed or accepted by this milestone.
+openlia-locho.example.com {
+  handle_path /__locho/* {
+    root * /srv/openlia-locho
+    header Cache-Control "no-store"
+    header Referrer-Policy "no-referrer"
+    header X-Content-Type-Options "nosniff"
+    header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; connect-src 'self' https://dns.iroh.link https://*.iroh.link wss://*.iroh.link; frame-ancestors 'none'; base-uri 'none'"
+    @worker path /sw.js
+    header @worker Service-Worker-Allowed "/"
+    file_server
+  }
+  handle {
+    @navigation header Sec-Fetch-Mode navigate
+    redir @navigation /__locho/ 302
+    respond "No public upstream fallback" 404
+  }
+}
