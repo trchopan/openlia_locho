@@ -4,3 +4,13 @@ test-results/
 playwright-report/
 .fixture/
 .DS_Store
+
+# Local credentials and browser/debug artifacts must never be published.
+.env
+.env.*
+!.env.example
+.local/
+*.log
+*.har
+playwright/.auth/
+storage-state*.json
