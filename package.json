@@ -6,6 +6,8 @@
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "serve": "node scripts/serve.mjs",
+    "release": "npm run check && node scripts/package-release.mjs",
+    "verify:hosting": "node scripts/verify-hosting.mjs",
     "test": "vitest run",
     "test:browser": "playwright test",
     "check": "npm run test && npm run build"

@@ -11,8 +11,9 @@ const server = createServer(async (request, response) => {
   response.setHeader('X-Content-Type-Options', 'nosniff');
   response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; connect-src 'self' https://dns.iroh.link https://*.iroh.link wss://*.iroh.link; frame-ancestors 'none'; base-uri 'none'");
   const url = new URL(request.url, 'http://localhost');
-  if (url.pathname === '/') { response.writeHead(302, { Location: '/__locho/' }); response.end(); return; }
-  if (!url.pathname.startsWith('/__locho/') || request.method !== 'GET') { response.writeHead(404); response.end('No public upstream fallback'); return; }
+  const readable = request.method === 'GET' || request.method === 'HEAD';
+  if (readable && (url.pathname === '/' || url.pathname === '/__locho' || (!url.pathname.startsWith('/__locho/') && request.headers['sec-fetch-mode'] === 'navigate'))) { response.writeHead(302, { Location: '/__locho/' }); response.end(); return; }
+  if (!url.pathname.startsWith('/__locho/') || !readable) { response.writeHead(404); response.end('No public upstream fallback'); return; }
   try {
     const name = decodeURIComponent(url.pathname.slice('/__locho/'.length)) || 'index.html';
     const file = resolve(root, name);

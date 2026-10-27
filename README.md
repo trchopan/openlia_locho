@@ -19,7 +19,7 @@ Use Node 24 (tested with 24.18.0) and npm. SDK/WASM files install from npm; Rust
 is not required to build this frontend.
 
 ```sh
-cd ~/Code/active/openlia_locho
+cd /path/to/openlia-locho
 npm ci --ignore-scripts
 npm run check
 npm run serve
@@ -61,13 +61,14 @@ processes and temporary synthetic workspace/state, then cleans them up.
 
 ```sh
 npx playwright install chromium firefox webkit
-OPENLIA_SOURCE=../open_lia npm run test:browser
+OPENLIA_SOURCE=/path/to/openlia npm run test:browser
 ```
 
-Overrides:
+Configuration:
 
 - `LOCHO_BINARY`: exact path to the installed Locho beta CLI.
-- `OPENLIA_SOURCE`: OpenLia repository path (default `../open_lia`).
+- `OPENLIA_SOURCE`: OpenLia repository path. Required unless
+  `OPENLIA_SERVER_ENTRY` is provided; there is no assumed adjacent checkout.
 - `OPENLIA_SERVER_ENTRY`: built Workspace UI server entry (default
   `<OPENLIA_SOURCE>/packages/workspace-ui/dist/server.js`). Use an independently
   built entry to test another deployment version.
@@ -83,11 +84,12 @@ substitutes for testing those features.
 No screenshots, videos, or traces are requested. Ignored failure artifacts may
 still contain synthetic test data; never publish them without inspection.
 
-### Read-only check against an existing dev deployment
+### Read-only check against an existing deployment
 
-`scripts/verify-live.mjs` uses the SSH target/project in
-`~/.config/openlia/dev/config.toml`, exports a ticket into process memory, and
-starts an isolated local static gateway/browser session. It checks login,
+`scripts/verify-live.mjs` requires `OPENLIA_LIVE_CONFIG` to select an OpenLia
+profile's `config.toml`. It uses that profile's SSH target/project, exports a
+ticket into process memory, and starts an isolated local static gateway/browser
+session. It checks login,
 protected tree access, reload and logout, without editing workspace documents.
 It requires the deployed host to run Locho `1.3.0-beta.3`.
 It supports Chromium, Firefox and WebKit.
@@ -96,7 +98,7 @@ Pass the password over stdin, not in arguments or saved files. For an interactiv
 terminal, this prompts without echoing it:
 
 ```sh
-python3 - <<'PY'
+OPENLIA_LIVE_CONFIG=/path/to/profile/config.toml python3 - <<'PY'
 import getpass, subprocess
 raise SystemExit(subprocess.run(
     ["node", "scripts/verify-live.mjs"],
@@ -105,12 +107,26 @@ raise SystemExit(subprocess.run(
 PY
 ```
 
-Overrides: `OPENLIA_LIVE_CONFIG` for the profile path and
-`OPENLIA_LIVE_BROWSERS` for a comma-separated subset of
+There is no default profile or deployment target. Missing or invalid target
+configuration fails before SSH or network access. The profile must describe an
+SSH-managed Compose deployment with a `locho-host` service; the verifier uses
+Python 3 with `tomllib` locally and remotely, Docker on the remote host, and SSH
+with an already trusted host key. Configure `OPENLIA_LIVE_BROWSERS` for a
+comma-separated subset of
 `chromium,firefox,webkit` (default: all three). The report contains only safe
 status/count fields, never credentials, document names/content or browser error
 call logs. No screenshots, videos or traces are recorded. Login/logout changes
 only authentication sessions; this script does not initialize or deploy servers.
+
+Set `OPENLIA_LIVE_BASE_URL=https://gateway.example.com` to run the same
+authenticated smoke against the public gateway instead of starting a local
+server. It must be an HTTPS origin with no path, query, or credentials. The
+selected profile and its existing `workspace-ui.public_origin` are unchanged.
+
+For a password-free connectivity check, set `OPENLIA_LIVE_PAIRING_ONLY=1`. This
+exports a ticket only into process memory, pairs, opens the login page, checks
+that protected access still returns 401, then disconnects. It does **not** test
+login, authenticated access, reload or logout and does not read stdin.
 
 ## Static hosting layout
 
@@ -134,8 +150,45 @@ Required response configuration:
   into public static requests. The controlled service worker handles these paths.
 
 The local Node preview server only serves static files; it is not a tunnel server.
-Production HTTPS/static hosting remains unverified. `deploy/Caddyfile` is
-a configuration example, not a deployed service.
+[`deploy/Caddyfile`](deploy/Caddyfile) is a standalone example: replace
+`gateway.example.com` and the static root with your own hostname and build
+location. You can serve these files with any static HTTPS host that meets the
+requirements above. Keep provider-specific DNS, tunnel configuration, deployment
+records and operator runbooks outside this public repository.
+
+### Package and verify a static deployment
+
+There is no backend proxy, preconfigured deployment, or bundled default ticket.
+Pair manually with a `workspace-ui:tcp` ticket from your trusted deployment,
+then use its normal login. OpenLia runtime and credential management are separate
+from deploying this static gateway.
+
+```sh
+npm run release
+```
+
+This runs tests/build and packages only `index.html`, `sw.js` and known static
+assets into an ignored, SHA-256-named `artifacts/*.tar.gz`. The ignored
+`artifacts/release.json` records its local absolute path and digest for deployment
+automation; it is machine-local output, not a file to publish or commit. Retain the
+previous release manifest for rollback. The digest identifies the archive bytes;
+independent builds may have different archive timestamps and digests.
+
+After deploying to your own hostname, check HTTPS headers, root worker scope,
+WASM compilation, and absent private fallback in three isolated browsers:
+
+```sh
+OPENLIA_HOSTING_BASE_URL=https://gateway.example.com npm run verify:hosting
+```
+
+`OPENLIA_HOSTING_BASE_URL` is required; there is no default public target. Use an
+HTTPS origin with no path, query, or credentials. Loopback HTTP at `127.0.0.1`
+is also accepted for local testing. Invalid or missing configuration fails before
+network access.
+
+This check uses no ticket or password. It does not prove browser-to-deployment Locho
+connectivity or login; run the authenticated verifier separately. Neither check
+captures screenshots, traces, or private browser error logs.
 
 ## Trust boundary
 

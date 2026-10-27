@@ -100,13 +100,23 @@ logout, and credential persistence against an existing deployment without editin
 documents. It requires a Locho `1.3.0-beta.3` host. Neither the fixture pin nor the
 live verifier establishes arbitrary-version compatibility.
 
+`scripts/verify-hosting.mjs` checks a caller-selected static host's headers,
+root service-worker scope and WASM compilation in Chromium, Firefox and WebKit.
+It requires an explicit `OPENLIA_HOSTING_BASE_URL` and never connects to an
+OpenLia backend. The live verifier separately requires `OPENLIA_LIVE_CONFIG`;
+its optional pairing-only mode checks the real login page, protected 401 and
+disconnect without creating an authenticated session. Neither script defaults
+to an operator's infrastructure. Deployment-specific verification records belong
+in the operator's own infrastructure documentation, not this repository.
+
 The following remain unverified or unsupported:
 
 - Native Hermes chat/approvals and actual ingestion/upload/preview workflows;
   synthetic transport probes do not establish application support.
 - Firebase/Google login and public-domain authorization.
 - A full compatibility matrix across independently built OpenLia versions.
-- Production HTTPS hosting, CSP, worker scope headers, and WASM MIME behavior.
+- Authenticated public-domain login/logout and operational behavior beyond
+  static-hosting/pairing checks; those checks alone do not prove authentication.
 - Physical/mobile browsers, BFCache, long background suspension, broader network
   transitions, and custom authenticated relay policies.
 - Security review of the single-origin trust model and application-owned storage.
