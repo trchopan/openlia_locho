@@ -1,4 +1,4 @@
-# OpenLia over browser Locho — authenticated prototype
+# OpenLia over browser Locho
 
 An independent static browser proxy for the **connected deployment’s own Workspace UI**.
 No copied UI, public backend proxy, private SDK imports, or Locho server component
@@ -9,10 +9,9 @@ The gateway pins **`locho_web@0.1.0-beta.3`** and uses its public
 The deployed UI keeps its own login, routing, server functions, and editor;
 no OpenLia backend authentication changes are required for this integration.
 
-This is still an experimental, trusted-deployment-only prototype, not a
-production-qualified public frontend. See the [beta.3 integration record](docs/sdk-beta3-integration.md)
-for current acceptance and remaining gates. The [beta.2 feasibility record](docs/feasibility.md)
-and [original auth proposal](docs/auth-follow-up.md) are retained as historical evidence.
+This is an experimental, trusted-deployment-only gateway, not a
+production-qualified public frontend. See [architecture and limitations](docs/architecture.md)
+for the session model, test coverage, and compatibility boundaries.
 
 ## Run locally
 
@@ -43,8 +42,8 @@ docker compose -f <generated-compose-file> exec -T locho-host \
 
 Use the deployment’s real Compose invocation/project options. Do not paste tickets
 into command arguments on this public frontend, URLs, issue reports, or logs.
-This prototype uses normal N0 discovery/relays; custom authenticated relays are
-not accepted as verified compatibility. A private deployment can remain private;
+The gateway uses normal N0 discovery/relays; compatibility with custom
+authenticated relays is unverified. A private deployment can remain private;
 the static host never receives the ticket or opens the tunnel.
 
 Paste the ticket into the connection screen, confirm that you trust the deployment,
@@ -78,8 +77,8 @@ Overrides:
 out-of-order updates. `npm run build` typechecks and emits static assets. Browser
 tests cover the deployed UI's login, protected access, document save/reload,
 logout, and session failure/recovery. Native Hermes chat, Firebase login, and real
-ingestion acceptance remain separate gates; synthetic transport probes are not
-substitutes for those features.
+ingestion workflows remain unverified; synthetic transport probes are not
+substitutes for testing those features.
 
 No screenshots, videos, or traces are requested. Ignored failure artifacts may
 still contain synthetic test data; never publish them without inspection.
@@ -91,8 +90,7 @@ still contain synthetic test data; never publish them without inspection.
 starts an isolated local static gateway/browser session. It checks login,
 protected tree access, reload and logout, without editing workspace documents.
 It requires the deployed host to run Locho `1.3.0-beta.3`.
-The [recorded live dev verification](docs/live-dev-verification.md) passed in
-Chromium, Firefox and WebKit.
+It supports Chromium, Firefox and WebKit.
 
 Pass the password over stdin, not in arguments or saved files. For an interactive
 terminal, this prompts without echoing it:
@@ -136,7 +134,7 @@ Required response configuration:
   into public static requests. The controlled service worker handles these paths.
 
 The local Node preview server only serves static files; it is not a tunnel server.
-Production HTTPS/static-host acceptance is still pending. `deploy/Caddyfile` is
+Production HTTPS/static hosting remains unverified. `deploy/Caddyfile` is
 a configuration example, not a deployed service.
 
 ## Trust boundary
@@ -161,7 +159,7 @@ potentially interfere with worker registration. One-connection checks, no proxy
 persistence, and session-generation guards **are not an isolation boundary against
 malicious same-origin code**. Do not host unrelated applications on this origin.
 
-The prototype leaves upstream CSP intact, rejects foreign origins and external
+The gateway leaves upstream CSP intact, rejects foreign origins and external
 redirects, limits request bodies to 4 MiB, streams response bodies with backpressure,
 and never replays writes. It has no WebSocket support, upload streaming, background
 availability guarantee, credential persistence, or arbitrary-version guarantee.

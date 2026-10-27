@@ -148,7 +148,7 @@ export async function requestBytes(request: Request) {
 export function responseHeaders(input: Headers, publicOrigin: string, requestPath = '/') {
   const headers = new Headers(input);
   for (const name of ['set-cookie', 'set-cookie2', 'content-length', 'content-encoding', 'connection', 'transfer-encoding', 'clear-site-data', 'service-worker-allowed']) headers.delete(name);
-  // Never cache authenticated UI, assets or synthetic tunnel responses in this milestone.
+  // Never cache authenticated UI, assets or synthetic tunnel responses.
   headers.set('cache-control', 'no-store');
   headers.set('referrer-policy', 'no-referrer');
   const location = headers.get('location');
