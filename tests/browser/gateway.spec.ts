@@ -86,7 +86,7 @@ test('authenticates the deployed UI, saves a document, reloads and logs out with
   await page.getByRole('button', { name: 'probe.md', exact: true }).click();
   await expect(page.getByRole('article', { name: 'Markdown preview' })).toContainText('Original content.');
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
-  const updated = '# Synthetic feasibility document\n\nSaved through authenticated Locho.\n';
+  const updated = '# Synthetic test document\n\nSaved through authenticated Locho.\n';
   await page.locator('.cm-content[contenteditable="true"]').fill(updated);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Saved', exact: true })).toBeVisible();

@@ -9,7 +9,7 @@ import { createServer as httpServer, request as httpRequest } from 'node:http';
 const exec = promisify(execFile);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const binary = process.env.LOCHO_BINARY ?? 'locho';
-export const password = 'synthetic-feasibility-only';
+export const password = 'synthetic-browser-test-only';
 
 async function unusedPort() {
   const server = createServer();
@@ -52,7 +52,7 @@ export async function startFixture() {
   };
   try {
     for (const folder of ['workspace', 'skills', 'memories', 'runtime', 'locho', 'ingestion', 'migrations', 'usage', 'cron']) await mkdir(join(root, folder));
-    await writeFile(join(root, 'workspace', 'probe.md'), '# Synthetic feasibility document\n\nOriginal content.\n');
+    await writeFile(join(root, 'workspace', 'probe.md'), '# Synthetic test document\n\nOriginal content.\n');
     const hash = await exec('bun', ['-e', `console.log(await Bun.password.hash(${JSON.stringify(password)}, { algorithm: 'argon2id' }))`]);
     const hashFile = join(root, 'password.hash');
     await writeFile(hashFile, hash.stdout.trim(), { mode: 0o600 });
