@@ -29,12 +29,14 @@ async function stop(child: ChildProcess) {
 }
 
 export async function startFixture() {
-  const source = resolve(process.env.OPENLIA_SOURCE ?? '../open_lia');
-  const entry = resolve(process.env.OPENLIA_SERVER_ENTRY ?? join(source, 'packages/workspace-ui/dist/server.js'));
+  const source = process.env.OPENLIA_SOURCE;
+  const serverEntry = process.env.OPENLIA_SERVER_ENTRY;
+  if (!serverEntry?.trim() && !source?.trim()) throw new Error('Set OPENLIA_SOURCE or OPENLIA_SERVER_ENTRY to a built OpenLia Workspace UI');
+  const entry = resolve(serverEntry?.trim() ? serverEntry : join(source!, 'packages/workspace-ui/dist/server.js'));
   await access(entry);
   const version = await exec(binary, ['--version']);
   if (!version.stdout.includes('1.3.0-beta.2')) throw new Error('Fixture requires Locho 1.3.0-beta.2');
-  const parent = join(tmpdir(), 'opencode');
+  const parent = join(tmpdir(), 'openlia-locho');
   await mkdir(parent, { recursive: true });
   const root = await mkdtemp(join(parent, 'openlia-locho-'));
   const children: ChildProcess[] = [];

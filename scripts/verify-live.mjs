@@ -4,19 +4,22 @@ import { chromium, firefox, webkit } from '@playwright/test';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createServer } from 'node:net';
-import { homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir } from 'node:fs/promises';
 
 const exec = promisify(execFile);
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const config = process.env.OPENLIA_LIVE_CONFIG ?? join(homedir(), '.config/openlia/dev/config.toml');
+const config = process.env.OPENLIA_LIVE_CONFIG;
+let base = process.env.OPENLIA_LIVE_BASE_URL;
 const engines = { chromium, firefox, webkit };
 const requested = (process.env.OPENLIA_LIVE_BROWSERS ?? 'chromium,firefox,webkit').split(',');
+const pairingOnly = process.env.OPENLIA_LIVE_PAIRING_ONLY === '1';
 const sshOptions = ['-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', '-o', 'StrictHostKeyChecking=yes', '-o', 'UpdateHostKeys=no', '-o', 'ControlMaster=no', '-o', 'ControlPath=none'];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const report = { ok: false, workspaceEditsAttempted: false, browsers: [] };
+if (pairingOnly) report.pairingOnly = true;
 let stage = 'configuration';
 let server;
 let browser;
@@ -31,18 +34,27 @@ async function privatePython(code, args = []) {
 }
 
 try {
+  check(config?.trim(), 'liveConfigRequired');
+  if (base !== undefined) {
+    let url;
+    try { url = new URL(base); } catch { throw new Error('unsupportedPublicOrigin'); }
+    check(url.protocol === 'https:' && url.pathname === '/' && !url.search && !url.hash && !url.username && !url.password, 'unsupportedPublicOrigin');
+    base = url.origin;
+  }
+  check(requested.length > 0 && requested.every((name) => Object.hasOwn(engines, name)), 'unsupportedBrowser');
   const selected = await privatePython(`import tomllib,json,sys
 x=tomllib.load(open(sys.argv[1],'rb'))
 o=x['openlia']
 print(json.dumps({k:o.get(k) for k in ['mode','target','root','project']}))`, [config]);
   check(selected.mode === 'ssh' && /^[A-Za-z0-9_.@:-]+$/.test(selected.target) && /^[A-Za-z0-9_-]+$/.test(selected.project), 'unsupportedDeployment');
-  check(requested.length > 0 && requested.every((name) => Object.hasOwn(engines, name)), 'unsupportedBrowser');
-  const chunks = [];
-  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
-  const input = Buffer.concat(chunks);
-  password = input.toString('utf8').replace(/\r?\n$/, '');
-  input.fill(0); chunks.forEach((chunk) => chunk.fill(0));
-  check(password.length > 0, 'passwordRequiredOnStdin');
+  if (!pairingOnly) {
+    const chunks = [];
+    for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+    const input = Buffer.concat(chunks);
+    password = input.toString('utf8').replace(/\r?\n$/, '');
+    input.fill(0); chunks.forEach((chunk) => chunk.fill(0));
+    check(password.length > 0, 'passwordRequiredOnStdin');
+  }
 
   stage = 'ticketExport';
   // SSH stdout is captured in this process, never inherited by the terminal.
@@ -62,21 +74,25 @@ print(json.dumps({'ok':v.returncode==0 and t.returncode==0,'version':v.stdout.st
   report.hostLochoVersion = pairing.version;
 
   stage = 'staticGateway';
-  const listener = createServer();
-  await new Promise((r) => listener.listen(0, '127.0.0.1', r));
-  const port = listener.address().port;
-  await new Promise((r) => listener.close(r));
-  const base = `http://127.0.0.1:${port}`;
-  server = spawn(process.execPath, ['scripts/serve.mjs'], { cwd: root, env: { ...process.env, PORT: String(port) }, stdio: 'ignore' });
-  server.on('error', () => {});
-  let ready = false;
-  for (let i = 0; i < 60; i++) {
-    try { if ((await fetch(`${base}/__locho/`, { signal: AbortSignal.timeout(1000) })).ok) { ready = true; break; } } catch {}
-    if (server.exitCode !== null) break;
-    await sleep(100);
+  if (base) {
+    check((await fetch(`${base}/__locho/`, { signal: AbortSignal.timeout(15_000) })).ok, 'staticGatewayUnavailable');
+  } else {
+    const listener = createServer();
+    await new Promise((r) => listener.listen(0, '127.0.0.1', r));
+    const port = listener.address().port;
+    await new Promise((r) => listener.close(r));
+    base = `http://127.0.0.1:${port}`;
+    server = spawn(process.execPath, ['scripts/serve.mjs'], { cwd: root, env: { ...process.env, PORT: String(port) }, stdio: 'ignore' });
+    server.on('error', () => {});
+    let ready = false;
+    for (let i = 0; i < 60; i++) {
+      try { if ((await fetch(`${base}/__locho/`, { signal: AbortSignal.timeout(1000) })).ok) { ready = true; break; } } catch {}
+      if (server.exitCode !== null) break;
+      await sleep(100);
+    }
+    check(ready, 'staticGatewayUnavailable');
   }
-  check(ready, 'staticGatewayUnavailable');
-  const temp = process.env.OPENLIA_LIVE_TEMP ?? join(process.env.TMPDIR ?? '/tmp', 'opencode');
+  const temp = process.env.OPENLIA_LIVE_TEMP ?? join(tmpdir(), 'openlia-locho');
   await mkdir(temp, { recursive: true });
 
   for (const name of requested) {
@@ -99,34 +115,44 @@ print(json.dumps({'ok':v.returncode==0 and t.returncode==0,'version':v.stdout.st
     stage = `${name}:deployedUi`;
     await page.getByRole('link', { name: 'Open deployed Workspace UI', exact: true }).click();
     await page.getByLabel('Password', { exact: true }).waitFor();
-    stage = `${name}:login`;
-    await page.getByLabel('Password', { exact: true }).fill(password);
-    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-    await page.getByRole('navigation', { name: 'Workspace navigation' }).waitFor();
-    const state = await page.evaluate(async () => {
-      const session = await fetch('/api/auth/session').then((r) => r.json());
-      const health = await fetch('/health').then((r) => r.json());
-      const tree = await fetch('/api/workspace/tree');
-      const data = await tree.json();
-      return { authenticated: session.authenticated === true, health: health.ok === true && health.service === 'workspace-ui', treeStatus: tree.status, entryCount: Array.isArray(data.entries) ? data.entries.length : null };
-    });
-    check(state.authenticated && state.health && state.treeStatus === 200, 'protectedAccessFailed');
-    result.authenticated = true;
-    result.workspaceEntryCount = state.entryCount;
-    stage = `${name}:reload`;
-    await page.reload();
-    await page.getByRole('navigation', { name: 'Workspace navigation' }).waitFor();
-    check(await page.evaluate(async () => (await fetch('/api/auth/session').then((r) => r.json())).authenticated === true), 'reloadLostSession');
-    result.reloadAuthenticated = true;
-    const persisted = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage }, cookie: document.cookie }));
-    check(!persisted.includes(password) && !persisted.includes(pairing.ticket) && !persisted.includes('openlia_workspace_session'), 'credentialPersistenceDetected');
-    check(!(await context.cookies()).some((cookie) => cookie.name === 'openlia_workspace_session'), 'browserCookieDetected');
-    stage = `${name}:logout`;
-    await page.getByRole('button', { name: 'Sign out', exact: true }).click();
-    await page.getByLabel('Password', { exact: true }).waitFor();
-    const loggedOut = await page.evaluate(async () => ({ authenticated: (await fetch('/api/auth/session').then((r) => r.json())).authenticated, protectedStatus: (await fetch('/api/workspace/tree')).status }));
-    check(loggedOut.authenticated === false && loggedOut.protectedStatus === 401, 'logoutFailed');
-    result.logoutVerified = true;
+    if (pairingOnly) {
+      stage = `${name}:unauthenticatedBoundary`;
+      const state = await page.evaluate(async () => ({
+        authenticated: (await fetch('/api/auth/session').then((r) => r.json())).authenticated,
+        protectedStatus: (await fetch('/api/workspace/tree')).status,
+      }));
+      check(state.authenticated === false && state.protectedStatus === 401, 'unauthenticatedBoundaryFailed');
+      result.unauthenticatedBoundaryVerified = true;
+    } else {
+      stage = `${name}:login`;
+      await page.getByLabel('Password', { exact: true }).fill(password);
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+      await page.getByRole('navigation', { name: 'Workspace navigation' }).waitFor();
+      const state = await page.evaluate(async () => {
+        const session = await fetch('/api/auth/session').then((r) => r.json());
+        const health = await fetch('/health').then((r) => r.json());
+        const tree = await fetch('/api/workspace/tree');
+        const data = await tree.json();
+        return { authenticated: session.authenticated === true, health: health.ok === true && health.service === 'workspace-ui', treeStatus: tree.status, entryCount: Array.isArray(data.entries) ? data.entries.length : null };
+      });
+      check(state.authenticated && state.health && state.treeStatus === 200, 'protectedAccessFailed');
+      result.authenticated = true;
+      result.workspaceEntryCount = state.entryCount;
+      stage = `${name}:reload`;
+      await page.reload();
+      await page.getByRole('navigation', { name: 'Workspace navigation' }).waitFor();
+      check(await page.evaluate(async () => (await fetch('/api/auth/session').then((r) => r.json())).authenticated === true), 'reloadLostSession');
+      result.reloadAuthenticated = true;
+      const persisted = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage }, cookie: document.cookie }));
+      check(!persisted.includes(password) && !persisted.includes(pairing.ticket) && !persisted.includes('openlia_workspace_session'), 'credentialPersistenceDetected');
+      check(!(await context.cookies()).some((cookie) => cookie.name === 'openlia_workspace_session'), 'browserCookieDetected');
+      stage = `${name}:logout`;
+      await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+      await page.getByLabel('Password', { exact: true }).waitFor();
+      const loggedOut = await page.evaluate(async () => ({ authenticated: (await fetch('/api/auth/session').then((r) => r.json())).authenticated, protectedStatus: (await fetch('/api/workspace/tree')).status }));
+      check(loggedOut.authenticated === false && loggedOut.protectedStatus === 401, 'logoutFailed');
+      result.logoutVerified = true;
+    }
     stage = `${name}:disconnect`;
     await page.goto(`${base}/__locho/`);
     await page.getByRole('button', { name: 'Disconnect', exact: true }).click();
@@ -136,10 +162,13 @@ print(json.dumps({'ok':v.returncode==0 and t.returncode==0,'version':v.stdout.st
     await browser.close(); browser = undefined; page = undefined;
   }
   report.ok = true;
-} catch {
+} catch (error) {
   // Do not print browser exceptions: call logs may contain passwords/tickets,
   // and real deployment pages may contain private document names/content.
   report.failedStage = stage;
+  if (stage === 'configuration' && ['liveConfigRequired', 'unsupportedPublicOrigin', 'unsupportedBrowser'].includes(error?.message)) {
+    report.configurationError = error.message;
+  }
   if (stage.endsWith(':pairing') && page) {
     const text = await page.getByRole('status').textContent().catch(() => '');
     const code = text?.match(/Connection failed: ([A-Za-z]{1,40})\./)?.[1];
